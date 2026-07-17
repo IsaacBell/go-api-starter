@@ -1,106 +1,121 @@
-# Go Starter 2024
+# Go API Starter
 
-A template for high-powered Go API micro-services. This app h has high RAM requirements, so you will need a strong machine or VM.
+A production-oriented starter for Go REST APIs. Opinionated project layout, batteries included: Echo for HTTP routing, PostgreSQL for persistence, RabbitMQ for messaging, InfluxDB for time-series business events, Prometheus for metrics, and JWT/OAuth2 for auth.
 
-## Pre-Requisites
+Clone it, rename the module, and start adding domains.
 
-You will need Docker and Go (1.7 or above) installed before setting up the app.
+## Stack
+
+| Concern | Choice |
+| --- | --- |
+| HTTP | [Echo](https://echo.labstack.com/) v4 |
+| Database | PostgreSQL 15 via [go-pg](https://github.com/go-pg/pg) v9 |
+| Messaging | RabbitMQ (streadway/amqp) |
+| Time-series | InfluxDB 2.x |
+| Metrics | Prometheus (+ echo-prometheus) |
+| Logging | zerolog (+ lecho) |
+| Auth | JWT, OAuth2, zxcvbn password strength |
+| API docs | Swagger (swaggo/echo-swagger) |
+| RPC/schema | Protocol Buffers |
+| Validation | go-playground/validator |
+
+## Requirements
+
+- Go 1.20+
+- Docker and Docker Compose
+
+The stack runs PostgreSQL, InfluxDB, and RabbitMQ alongside the app, so it has high RAM requirements. You will want a strong machine or VM.
+
+`start-server.sh` installs `protobuf-compiler` via `apt`, so it assumes Debian/Ubuntu (or WSL). On macOS, install protobuf with `brew install protobuf` and run the Docker steps by hand.
 
 ## Setup
 
-You must configure your environment before running the app. To run a default config, use the following command to set necessary environment variables.
+Configure your environment before running the app. To start from the default config:
 
 ```bash
-$ cp .env.example .env
+cp .env.example .env
 ```
 
-## Installation
-
-## Running the App
+## Running the app
 
 ```bash
-$ bash start_server.sh
+bash start-server.sh
 ```
 
-Kill the app with Ctrl+C as normal.
+This builds the `soapstone-image` container, brings the Compose stack up, installs the protobuf toolchain, and builds the Go binary. Kill it with Ctrl+C as normal.
 
-## Accessing Tools
+## Accessing tools
 
-Connecting to postgres:
+Connect to PostgreSQL:
 
 ```bash
-$ docker exec -it -u postgres postgresDB15 psql
+docker exec -it -u postgres postgresDB psql
 ```
 
-Connect to InfluxDB:
+Connect to InfluxDB: browse to `http://localhost:8086` (credentials come from the `INFLUXDB_*` variables in your `.env`).
 
-## Code Considerations
+## Project structure
 
-### Implementing CRUD of another table
+1. The root directory contains things not related to code directly — Docker Compose, CI/CD, readme, bash scripts.
 
-Let's say you have a table named 'cars' that handles employee's cars. To implement CRUD on this table you need:
+2. The `cmd` package contains code for starting applications (main packages). The directory name for each application should match the name of the executable you want. An application may produce multiple binaries, so we follow the Go convention of placing the main package as a subdirectory of `cmd`. In a scheduler application, for example, the binary would live under `cmd/cron`. It also loads configuration and passes it to the service initializers.
 
-1. Inside `pkg/utl/model` create a new file named `car.go`. Inside put your entity (struct), and methods on the struct if you need them.
+3. The rest of the code lives under `/pkg`, which contains `utl` and microservice directories.
 
-2. Create a new `car` folder in the (micro)service where your service will be located, most probably inside `api`. Inside create a file/service named car.go and test file for it (`car/car.go` and `car/car_test.go`). You can test your code without writing a single query by mocking the database logic inside /mock/mockdb folder. If you have complex queries interfering with other entities, you can create in this folder other files such as car_users.go or car_templates.go for example.
+4. Microservice directories such as `api` (naming corresponds to `cmd/` naming) contain a folder per domain it interacts with: `user`, `car`, `appointment`, and so on.
 
-3. Inside car folder, create folders named `platform`, `transport` and `logging`.
+5. Domain directories such as `user` contain all application/business logic plus two additional directories, `platform` and `transport`.
 
-4. Code for interacting with a platform like database (postgresql) should be placed under `car/platform/pgsql`. (`pkg/api/car/platform/pgsql/car.go`)
+6. `platform` contains packages providing support for databases, authentication, and marshaling. Most packages under `platform` are decoupled behind interfaces. Every platform gets its own package: `postgres`, `elastic`, `redis`, `memcache`.
 
-5. In `pkg/api/car/transport` create a new file named `http.go`. This is where your handlers are located. Under the same location create http_test.go to test your API.
+7. `transport` contains HTTP handlers. The package receives requests, marshals and validates them, then passes them to the corresponding service.
 
-6. In logging directory create a file named `car.go` and copy the logic from another service. This serves as request/response logging.
+8. `utl` contains helper packages and models — mock, middleware, configuration, server.
 
-6. In `pkg/api/api.go` wire up all the logic, by instantiating car service, passing it to the logging and transport service afterwards.
+## Adding CRUD for a new table
 
-### Implementing other platforms
+Say you have a `cars` table for employees' cars. To implement CRUD on it:
 
-Similarly to implementing APIs relying only on a database, you can implement other platforms by:
+1. Inside `pkg/utl/model`, create `car.go`. Put your entity (struct) there, along with any methods on it.
 
-1. In the service package, in car.go add interface that corresponds to the platform, for example, Indexer or Reporter.
+2. Create a `car` folder in the (micro)service where your service will live, most likely under `api`. Inside, create the service and its test (`car/car.go` and `car/car_test.go`). You can test without writing a single query by mocking the database logic in `/mock/mockdb`. If you have complex queries touching other entities, add files like `car_users.go` or `car_templates.go` here.
 
-2. Rest of the procedure is same, except that in `/platform` you would create a new folder for your platform, for example, `elastic`.
+3. Inside the `car` folder, create `platform`, `transport`, and `logging`.
 
-3. Once the new platform logic is implemented, create an instance of it in main.go (for example `elastic.Client`) and pass it as an argument to car service (`pkg/api/car/car.go`).
+4. Code interacting with a platform such as PostgreSQL goes under `car/platform/pgsql` (`pkg/api/car/platform/pgsql/car.go`).
 
-### Running database queries in transaction
+5. In `pkg/api/car/transport`, create `http.go` — this is where your handlers live. Add `http_test.go` alongside it to test the API.
 
-To use a transaction, before interacting with db create a new transaction:
+6. In `logging`, create `car.go` and copy the logic from another service. This handles request/response logging.
+
+7. In `pkg/api/api.go`, wire everything up: instantiate the car service, then pass it to the logging and transport services.
+
+## Implementing other platforms
+
+Similar to implementing APIs that rely only on a database:
+
+1. In the service package, in `car.go`, add an interface corresponding to the platform — `Indexer`, `Reporter`, etc.
+
+2. The rest of the procedure is the same, except that under `/platform` you create a new folder for your platform, for example `elastic`.
+
+3. Once the platform logic is implemented, create an instance of it in `main.go` (for example `elastic.Client`) and pass it as an argument to the car service (`pkg/api/car/car.go`).
+
+## Running database queries in a transaction
+
+Before interacting with the database, create a new transaction:
 
 ```go
-err := s.db.RunInTransaction(func (tx *pg.Tx) error{
+err := s.db.RunInTransaction(func(tx *pg.Tx) error {
     // Application service here
 })
-````
+```
 
-Instead of passing database client as `s.db` , inside this function pass it as `tx`. Handle the error accordingly.
-
-## Project Structure
-
-1. Root directory contains things not related to code directly, e.g. docker-compose, CI/CD, readme, bash scripts etc. It should also contain vendor folder, Gopkg.toml and Gopkg.lock if dep is being used.
-
-2. Cmd package contains code for starting applications (main packages). The directory name for each application should match the name of the executable you want to have. An application may produce multiple binaries, therefore we use the Go convention of placing main package as a subdirectory of the cmd package. As an example, in a scheduler application the binary would be located under cmd/cron. It also loads the necessary configuration and passes it to the service initializers.
-
-3. Rest of the code is located under /pkg. The pkg directory contains `utl` and 'microservice' directories.
-
-4. Microservice directories, like api (naming corresponds to `cmd/` folder naming) contains multiple folders for each domain it interacts with, for example: user, car, appointment etc.
-
-5. Domain directories, like user, contain all application/business logic and two additional directories: platform and transport.
-
-6. Platform folder contains various packages that provide support for things like databases, authentication or even marshaling. Most of the packages located under platform are decoupled by using interfaces. Every platform has its own package, for example, postgres, elastic, redis, memcache etc.
-
-7. Transport package contains HTTP handlers. The package receives the requests, marshals, validates then passes it to the corresponding service.
-
-8. Utl directory contains helper packages and models. Packages such as mock, middleware, configuration, server are located here.
-
-## Deployment
-
+Instead of passing the database client as `s.db`, pass `tx` inside this function. Handle the error accordingly.
 
 ## Contributing
 
 We loosely follow a trunk-based protocol.
 
-## Common Errors
+## License
 
-## Notes
+See [LICENSE](LICENSE).
