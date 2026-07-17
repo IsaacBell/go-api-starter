@@ -11,7 +11,8 @@ tmp*
 tmp/*
 **.bak*
 .git.bak*
-.env
 notes*.txt
 notes*.md
 bin/
+config.bat
+node_modules
